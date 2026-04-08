@@ -80,6 +80,7 @@ class Logger:
         if self.log_file is not None:
             self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
+    # Writes a timestamped message to stdout and, if configured, to the log file.
     def log(self, msg: str) -> None:
         line = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
         print(line)
@@ -100,6 +101,8 @@ class FileLock:
     def __exit__(self, exc_type, exc, tb) -> None:
         self.release()
 
+    # Uses a simple file lock to prevent concurrent refresh runs from touching
+    # the same config file at the same time.
     def acquire(self) -> None:
         self.lock_file.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -126,6 +129,7 @@ class FileLock:
         except OSError as exc:
             raise LockError(f"Another cookie refresh process is already running. Lock file: {self.lock_file}") from exc
 
+    # Releases the lock if one is held.
     def release(self) -> None:
         if self.handle is None:
             return
@@ -152,6 +156,7 @@ def log(msg: str) -> None:
     LOGGER.log(msg)
 
 
+# Redacts deeper URL paths so logs remain useful without exposing the full site path.
 def redact_url(value: str) -> str:
     try:
         parts = urlsplit(value)
@@ -168,6 +173,7 @@ def redact_url(value: str) -> str:
         return value
 
 
+# Returns the Scoop installation root if present.
 def scoop_root() -> Optional[Path]:
     env = os.environ.get("SCOOP")
     if env:
@@ -183,6 +189,7 @@ def which_path(name: str) -> Optional[Path]:
     return Path(found) if found else None
 
 
+# Detects rclone either from PATH or a standard Scoop install.
 def detect_rclone_exe() -> Path:
     p = which_path("rclone")
     if p:
@@ -195,6 +202,7 @@ def detect_rclone_exe() -> Path:
     raise FileNotFoundError("Could not find rclone.exe")
 
 
+# Resolves the active rclone.conf path by parsing 'rclone config file' output.
 def detect_rclone_conf(rclone_exe: Path) -> Path:
     result = subprocess.run(
         [str(rclone_exe), "config", "file"],
@@ -224,6 +232,7 @@ def detect_rclone_conf(rclone_exe: Path) -> Path:
     raise FileNotFoundError(f"Detected rclone config does not exist. Output was: {stdout}")
 
 
+# Detects a Chromium-based browser binary from PATH or Scoop.
 def detect_chromium_binary() -> Path:
     for name in ["chromium", "chrome", "msedge"]:
         p = which_path(name)
@@ -242,6 +251,7 @@ def detect_chromium_binary() -> Path:
     raise FileNotFoundError("Could not find a Chromium based browser executable")
 
 
+# Tries to find the browser user data directory for the detected browser.
 def detect_user_data_dir(browser_binary: Path) -> Path:
     root = scoop_root()
     if root:
@@ -273,6 +283,8 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+# Parses rclone.conf into remote sections while preserving the original lines for
+# safe in-place editing later.
 def parse_remote_infos(conf_text: str) -> list[RemoteInfo]:
     remotes: list[RemoteInfo] = []
     current_name: Optional[str] = None
@@ -320,6 +332,9 @@ def is_sharepoint_webdav(remote: RemoteInfo) -> bool:
     return remote_type == "webdav" and "sharepoint.com" in url.lower()
 
 
+# Chooses the target remote.
+# In auto mode, it prefers a single SharePoint WebDAV remote, then falls back
+# to a single generic WebDAV remote.
 def detect_remote_name(conf_text: str, requested_remote: str) -> str:
     remotes = parse_remote_infos(conf_text)
     if not remotes:
@@ -354,6 +369,7 @@ def detect_remote_name(conf_text: str, requested_remote: str) -> str:
     raise RemoteDetectionError("Could not auto detect a suitable WebDAV remote in rclone config")
 
 
+# Extracts the scheme and host from the remote URL and verifies that it points to SharePoint.
 def get_remote_host(remote: RemoteInfo) -> str:
     remote_type = remote.options.get("type", "").lower()
     if remote_type != "webdav":
@@ -369,6 +385,7 @@ def get_remote_host(remote: RemoteInfo) -> str:
     return f"{parts.scheme}://{parts.netloc}"
 
 
+# Extracts FedAuth and rtFa values from a Cookie header value.
 def parse_cookie_blob(cookie_blob: str) -> tuple[Optional[str], Optional[str]]:
     fedauth = None
     rtfa = None
@@ -386,6 +403,8 @@ def parse_cookie_blob(cookie_blob: str) -> tuple[Optional[str], Optional[str]]:
     return fedauth, rtfa
 
 
+# Parses an rclone 'headers = ...' line into individual quoted tokens.
+# Returns None if the line is not a headers line, or if it is malformed.
 def parse_header_tokens_from_line(line: str) -> Optional[list[str]]:
     match = COOKIE_HEADER_LINE_RE.match(line.rstrip("\r\n"))
     if not match:
@@ -399,6 +418,7 @@ def parse_header_tokens_from_line(line: str) -> Optional[list[str]]:
     return tokens
 
 
+# Rebuilds an rclone headers line while preserving the expected quoted token format.
 def build_header_line(tokens: list[str]) -> str:
     escaped_tokens = []
     for token in tokens:
@@ -407,6 +427,7 @@ def build_header_line(tokens: list[str]) -> str:
     return f"headers = {','.join(escaped_tokens)}\n"
 
 
+# Replaces an existing Cookie header in the token list, or appends one if missing.
 def upsert_cookie_header_tokens(tokens: list[str], fedauth: str, rtfa: str) -> list[str]:
     if len(tokens) % 2 != 0:
         raise ConfigError("Malformed headers line: expected header name/value pairs")
@@ -431,6 +452,7 @@ def upsert_cookie_header_tokens(tokens: list[str], fedauth: str, rtfa: str) -> l
     return updated
 
 
+# Scans remote lines for a headers entry and returns the current FedAuth/rtFa pair if present.
 def parse_cookie_values_from_lines(lines: list[str]) -> tuple[Optional[str], Optional[str]]:
     for line in lines:
         tokens = parse_header_tokens_from_line(line)
@@ -449,6 +471,7 @@ def get_cookie_value(driver: webdriver.Chrome, name: str) -> Optional[str]:
     return cookie["value"] if cookie else None
 
 
+# Starts Selenium against an existing Chromium profile so SharePoint auth can be reused.
 def build_driver(binary: Path, user_data_dir: Path, profile_directory: str, headless: bool) -> webdriver.Chrome:
     options = Options()
     options.binary_location = str(binary)
@@ -469,12 +492,14 @@ def build_driver(binary: Path, user_data_dir: Path, profile_directory: str, head
     return driver
 
 
+# Creates a requests session with the response format expected from SharePoint's API endpoint.
 def create_session() -> Session:
     session = requests.Session()
     session.headers.update({"Accept": "application/json;odata=verbose"})
     return session
 
 
+# Validates whether the supplied SharePoint cookies still work by calling a lightweight API endpoint.
 def test_sharepoint_cookie(host: str, fedauth: str, rtfa: str, timeout: int = 15) -> CookieValidationResult:
     url = host.rstrip("/") + TEST_ENDPOINT
     headers = {"Cookie": f"FedAuth={fedauth};rtFa={rtfa};"}
@@ -508,6 +533,8 @@ def format_validation_result(result: CookieValidationResult) -> str:
     return ", ".join(details)
 
 
+# Opens the SharePoint host in the browser profile and waits for FedAuth/rtFa
+# to appear in the browser cookie jar.
 def fetch_sharepoint_cookies(
     driver: webdriver.Chrome,
     host: str,
@@ -540,6 +567,7 @@ def fetch_sharepoint_cookies(
     return fedauth, rtfa
 
 
+# Creates a timestamped backup next to the original file before modifying it.
 def backup_file(path: Path) -> Path:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     backup = path.with_suffix(path.suffix + f".{stamp}.bak")
@@ -547,6 +575,8 @@ def backup_file(path: Path) -> Path:
     return backup
 
 
+# Writes through a temporary file and replaces the original atomically to reduce
+# the chance of leaving behind a partial config file.
 def atomic_write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", delete=False, dir=path.parent, encoding="utf-8", newline="") as handle:
@@ -557,6 +587,8 @@ def atomic_write_text(path: Path, content: str) -> None:
     os.replace(temp_path, path)
 
 
+# Updates or inserts the Cookie header for the selected remote while preserving
+# the rest of rclone.conf as-is.
 def update_remote_cookie_header(conf_path: Path, remote_name: str, fedauth: str, rtfa: str) -> bool:
     conf_text = read_text(conf_path)
     remotes = parse_remote_infos(conf_text)
@@ -625,6 +657,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# Main flow:
+# 1. Detect local dependencies and the target remote
+# 2. Reuse existing cookies if they still validate
+# 3. Launch the browser only when a refresh is actually needed
+# 4. Validate fresh cookies before writing them back to rclone.conf
 def main() -> int:
     global LOGGER
     args = parse_args()

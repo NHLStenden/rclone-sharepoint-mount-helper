@@ -18,6 +18,7 @@ $Script:ResolvedLogFile = if ($LogFile) { $LogFile } else { Join-Path $BaseDir "
 $Script:LockFile = Join-Path $BaseDir ".rclone-set.lock"
 $Script:LockStream = $null
 
+# Writes a timestamped message to the console and the launcher log file.
 function Write-Log {
     param(
         [string]$Message,
@@ -34,6 +35,7 @@ function Write-Log {
     Add-Content -LiteralPath $Script:ResolvedLogFile -Value $line
 }
 
+# Prevents multiple launcher instances from running at the same time.
 function Enter-ScriptLock {
     try {
         $lockDir = Split-Path -Parent $Script:LockFile
@@ -54,6 +56,7 @@ function Enter-ScriptLock {
     }
 }
 
+# Releases the launcher lock file handle.
 function Exit-ScriptLock {
     if ($Script:LockStream) {
         $Script:LockStream.Dispose()
@@ -61,6 +64,7 @@ function Exit-ScriptLock {
     }
 }
 
+# Locates rclone.exe from PATH or a Scoop installation.
 function Resolve-RcloneExe {
     $cmd = Get-Command rclone -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
@@ -76,6 +80,7 @@ function Resolve-RcloneExe {
     throw "Could not find rclone.exe"
 }
 
+# Reads the rclone config location by parsing the output of 'rclone config file'.
 function Get-RcloneConfigPath {
     param(
         [string]$RcloneExe
@@ -101,6 +106,8 @@ function Get-RcloneConfigPath {
     throw "Could not resolve rclone.conf path from rclone output."
 }
 
+# Resolves the target remote name.
+# If 'auto' is used, it selects the only SharePoint WebDAV remote found in rclone.conf.
 function Resolve-RemoteName {
     param(
         [string]$RemoteName,
@@ -159,6 +166,7 @@ function Resolve-RemoteName {
     throw "Could not auto detect a SharePoint WebDAV remote. Please specify -RemoteName explicitly."
 }
 
+# Locates python.exe, preferring the local virtual environment if present.
 function Resolve-PythonExe {
     if (Test-Path $VenvPython) {
         return $VenvPython
@@ -172,6 +180,8 @@ function Resolve-PythonExe {
     throw "Could not find python.exe. Expected venv interpreter at '$VenvPython' or python on PATH."
 }
 
+# Checks whether the mount point exists and responds within a short timeout.
+# A background job is used so the script does not hang on stale mounts.
 function Test-MountPointAccessible {
     param(
         [string]$MountPoint,
@@ -207,6 +217,7 @@ function Test-MountPointAccessible {
     }
 }
 
+# Finds rclone mount processes that match the requested remote and mount point.
 function Get-RcloneMountProcesses {
     param(
         [string]$RemoteName,
@@ -236,6 +247,7 @@ function Get-RcloneMountProcesses {
     return @($matched.ToArray())
 }
 
+# Stops one or more stale rclone mount processes.
 function Stop-RcloneMountProcesses {
     param(
         [object[]]$Processes
