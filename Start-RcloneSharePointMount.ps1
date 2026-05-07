@@ -334,7 +334,8 @@ try {
         "mount",
         "${resolvedRemoteName}:",
         $MountPoint,
-        "--vfs-cache-mode", "writes"
+        "--onedrive-no-versions",
+        "--no-modtime"
     )
     Start-Process -FilePath $rcloneExe -ArgumentList $rcloneArgs -WindowStyle Hidden | Out-Null
     Start-Sleep -Seconds 2
