@@ -60,6 +60,19 @@ Force a refresh:
 .\Start-RcloneSharePointMount.ps1 -ForceRefresh
 ```
 
+## Example of a remote
+
+This helper expects an existing `rclone` WebDAV remote that points to a SharePoint document library.
+
+Example:
+
+```ini
+[NHLStenden]
+type = webdav
+url = https://newuniversity-my.sharepoint.com/personal/martin_bosgra_nhlstenden_com/Documents
+vendor = other
+```
+
 # Contributing
 
 Contributions are welcome! Please fork the repository and submit pull requests.
