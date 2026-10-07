@@ -232,17 +232,40 @@ def detect_rclone_conf(rclone_exe: Path) -> Path:
     raise FileNotFoundError(f"Detected rclone config does not exist. Output was: {stdout}")
 
 
-# Detects a Chromium-based browser binary from PATH or Scoop.
+# Detects a Chromium-based browser from environment, PATH, standard Windows locations, or Scoop.
 def detect_chromium_binary() -> Path:
+    env_binary = os.environ.get("CHROME_FOR_TESTING")
+    if env_binary:
+        p = Path(env_binary)
+        if p.exists():
+            return p
+
     for name in ["chromium", "chrome", "msedge"]:
         p = which_path(name)
         if p:
             return p
+
+    local = Path(os.environ.get("LOCALAPPDATA", ""))
+    program_files = Path(os.environ.get("PROGRAMFILES", ""))
+    program_files_x86 = Path(os.environ.get("PROGRAMFILES(X86)", ""))
+    for p in [
+        local / "Google" / "Chrome" / "Application" / "chrome.exe",
+        local / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+        program_files / "Google" / "Chrome" / "Application" / "chrome.exe",
+        program_files / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+        program_files_x86 / "Google" / "Chrome" / "Application" / "chrome.exe",
+        program_files_x86 / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+    ]:
+        if p.exists():
+            return p
+
     root = scoop_root()
     if root:
         for rel in [
+            Path("apps/chrome-for-testing/current/chrome.exe"),
             Path("apps/chromium/current/chrome.exe"),
             Path("apps/googlechrome/current/chrome.exe"),
+            Path("apps/googlechrome-portable/current/chrome.exe"),
             Path("apps/microsoft-edge/current/msedge.exe"),
         ]:
             p = root / rel
@@ -251,16 +274,28 @@ def detect_chromium_binary() -> Path:
     raise FileNotFoundError("Could not find a Chromium based browser executable")
 
 
-# Tries to find the browser user data directory for the detected browser.
+# Tries to find the user data directory that belongs to the detected browser.
 def detect_user_data_dir(browser_binary: Path) -> Path:
+    cft_user_data = os.environ.get("CHROME_FOR_TESTING_USER_DATA_DIR")
+    if cft_user_data and os.environ.get("CHROME_FOR_TESTING"):
+        cft_binary = Path(os.environ["CHROME_FOR_TESTING"])
+        if cft_binary == browser_binary:
+            p = Path(cft_user_data)
+            if p.exists():
+                return p
+
     root = scoop_root()
     if root:
-        name = browser_binary.parent.parent.name.lower()
+        browser_path = str(browser_binary).lower()
         candidates: list[Path] = []
-        if "edge" in name:
-            candidates.append(root / "persist" / "microsoft-edge" / "User Data")
-        elif "chrome" in browser_binary.name.lower() and "google" in str(browser_binary).lower():
+        if "chrome-for-testing" in browser_path:
+            candidates.append(root / "persist" / "chrome-for-testing" / "User Data")
+        elif "googlechrome-portable" in browser_path:
+            candidates.append(root / "persist" / "googlechrome-portable" / "User Data")
+        elif "googlechrome" in browser_path:
             candidates.append(root / "persist" / "googlechrome" / "User Data")
+        elif "edge" in browser_path:
+            candidates.append(root / "persist" / "microsoft-edge" / "User Data")
         else:
             candidates.append(root / "persist" / "chromium" / "User Data")
         for c in candidates:
@@ -268,11 +303,14 @@ def detect_user_data_dir(browser_binary: Path) -> Path:
                 return c
 
     local = Path(os.environ.get("LOCALAPPDATA", ""))
-    fallbacks = [
-        local / "Chromium" / "User Data",
-        local / "Google" / "Chrome" / "User Data",
-        local / "Microsoft" / "Edge" / "User Data",
-    ]
+    browser_path = str(browser_binary).lower()
+    if "edge" in browser_path:
+        fallbacks = [local / "Microsoft" / "Edge" / "User Data"]
+    elif "chromium" in browser_path:
+        fallbacks = [local / "Chromium" / "User Data"]
+    else:
+        fallbacks = [local / "Google" / "Chrome" / "User Data"]
+
     for p in fallbacks:
         if p.exists():
             return p
